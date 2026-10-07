@@ -46,6 +46,15 @@ def route_table() -> list[Route]:
         Route("GET", "/api/events", "recent domain events", "handle_events"),
         Route("GET", "/api/events/{topic}", "subscribers registered for a topic", "handle_events_topic"),
         Route("POST", "/api/telemetry/reset", "reset event counters", "handle_telemetry_reset"),
+        # -- topics ---------------------------------------------------------
+        Route("GET", "/api/topics", "registered topic versions", "handle_topics"),
+        Route("POST", "/api/topics/register", "register a topic family", "handle_topic_register"),
+        Route("POST", "/api/topics/version", "cut the next version of a family", "handle_topic_version"),
+        Route("POST", "/api/topics/deprecate", "deprecate a topic with a deadline", "handle_topic_deprecate"),
+        Route("POST", "/api/topics/retire", "retire a topic for good", "handle_topic_retire"),
+        Route("GET", "/api/topics/evolution", "topic lifecycle history", "handle_topic_evolution"),
+        Route("GET", "/api/topics/reconcile", "cross-check topics, subscriptions and counters", "handle_topic_reconcile"),
+        Route("GET", "/api/topics/{topic}", "read one topic version", "handle_topic_detail"),
         # -- flights ------------------------------------------------------
         Route("GET", "/api/flights", "list flights", "handle_list_flights"),
         Route("POST", "/api/flights", "register a flight", "handle_register_flight"),

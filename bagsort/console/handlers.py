@@ -103,8 +103,14 @@ def handle_metrics_reset(server, request: Request) -> Response:
 
 
 def handle_telemetry(server, request: Request) -> Response:
-    telemetry = _plant(server).telemetry
-    return json_response({"total": telemetry.total(), "topics": telemetry.snapshot()})
+    plant = _plant(server)
+    return json_response(
+        {
+            "total": plant.telemetry.total(),
+            "topics": plant.telemetry.snapshot(),
+            "families": plant.topic_family_counts(),
+        }
+    )
 
 
 def handle_report(server, request: Request) -> Response:
@@ -142,6 +148,51 @@ def handle_telemetry_reset(server, request: Request) -> Response:
     plant = _plant(server)
     plant.telemetry.reset()
     return json_response({"status": "reset"})
+
+
+# ---------------------------------------------------------------------------
+# topics
+# ---------------------------------------------------------------------------
+
+
+def handle_topics(server, request: Request) -> Response:
+    return json_response(_plant(server).topics.as_list())
+
+
+def handle_topic_register(server, request: Request) -> Response:
+    info = _plant(server).register_topic(request.required("topic"))
+    return json_response(info.as_dict(), status=201)
+
+
+def handle_topic_version(server, request: Request) -> Response:
+    info = _plant(server).register_topic_version(request.required("family"))
+    return json_response(info.as_dict(), status=201)
+
+
+def handle_topic_deprecate(server, request: Request) -> Response:
+    info = _plant(server).deprecate_topic(
+        request.required("topic"),
+        request.str_field("successor"),
+        request.required("not_after"),
+    )
+    return json_response(info.as_dict())
+
+
+def handle_topic_retire(server, request: Request) -> Response:
+    info = _plant(server).retire_topic(request.required("topic"))
+    return json_response(info.as_dict())
+
+
+def handle_topic_evolution(server, request: Request) -> Response:
+    return json_response([entry.as_dict() for entry in _plant(server).topic_evolution()])
+
+
+def handle_topic_reconcile(server, request: Request) -> Response:
+    return json_response(_plant(server).reconcile_topics())
+
+
+def handle_topic_detail(server, request: Request) -> Response:
+    return json_response(_plant(server).topics.describe(request.param("topic")))
 
 
 # ---------------------------------------------------------------------------

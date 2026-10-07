@@ -5,7 +5,7 @@ from __future__ import annotations
 from bagsort import __version__
 
 SERVICE_NAME = "line-control-service"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def version_info() -> dict[str, object]:

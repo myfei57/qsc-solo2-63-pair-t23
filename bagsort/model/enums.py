@@ -1,4 +1,4 @@
-"""Enumerations for the two state machines the plant tracks."""
+"""Enumerations for the state machines the plant tracks."""
 
 from __future__ import annotations
 
@@ -41,3 +41,17 @@ class Verdict(str, Enum):
     FRESH = "fresh"
     REPLAYED = "replayed"
     ROLLED_OVER = "rolled_over"
+
+
+class TopicState(str, Enum):
+    """Lifecycle of one registered topic version.
+
+    ``ACTIVE`` serves normally. ``DEPRECATED`` still serves during the
+    transition window but carries a successor and a hard deadline; once the
+    clock passes the deadline the version is treated as retired. ``RETIRED``
+    rejects every publish and subscribe attempt.
+    """
+
+    ACTIVE = "active"
+    DEPRECATED = "deprecated"
+    RETIRED = "retired"

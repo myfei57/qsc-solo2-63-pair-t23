@@ -252,6 +252,86 @@ class Sequence:
 
 
 @dataclass(frozen=True)
+class TopicVersion:
+    """One registered version of a topic family.
+
+    ``not_after`` is the deprecation deadline in the clock's ISO format; once
+    the clock passes it the version is treated as retired even before an
+    explicit retire command lands.
+    """
+
+    topic: str
+    family: str
+    version: int
+    state: str = "active"
+    successor: str = ""
+    not_after: str = ""
+    registered_at: str = ""
+    retired_at: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "topic": self.topic,
+            "family": self.family,
+            "version": self.version,
+            "state": self.state,
+            "successor": self.successor,
+            "not_after": self.not_after,
+            "registered_at": self.registered_at,
+            "retired_at": self.retired_at,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "TopicVersion":
+        return cls(
+            topic=str(raw["topic"]),
+            family=str(raw.get("family", raw["topic"])),
+            version=int(raw.get("version", 1)),
+            state=str(raw.get("state", "active")),
+            successor=str(raw.get("successor", "")),
+            not_after=str(raw.get("not_after", "")),
+            registered_at=str(raw.get("registered_at", "")),
+            retired_at=str(raw.get("retired_at", "")),
+        )
+
+
+@dataclass(frozen=True)
+class TopicTransition:
+    """One entry in the topic evolution trail, appended per lifecycle change."""
+
+    action: str
+    topic: str
+    family: str
+    version: int
+    successor: str = ""
+    not_after: str = ""
+    at: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "action": self.action,
+            "topic": self.topic,
+            "family": self.family,
+            "version": self.version,
+            "successor": self.successor,
+            "not_after": self.not_after,
+            "at": self.at,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "TopicTransition":
+        return cls(
+            action=str(raw["action"]),
+            topic=str(raw["topic"]),
+            family=str(raw.get("family", raw["topic"])),
+            version=int(raw.get("version", 1)),
+            successor=str(raw.get("successor", "")),
+            not_after=str(raw.get("not_after", "")),
+            at=str(raw.get("at", "")),
+        )
+
+
+@dataclass(frozen=True)
 class AuditEntry:
     sequence: int
     kind: str

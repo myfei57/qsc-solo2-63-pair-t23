@@ -15,13 +15,14 @@ from bagsort.checkin.desk import Desk
 from bagsort.clock import Clock
 from bagsort.errors import ConflictError
 from bagsort.events.bus import EventBus
+from bagsort.events.registry import TopicRegistry
 from bagsort.flight.book import FlightBook
 from bagsort.flight.close import FlightCloser
 from bagsort.flight.mapping import BagMapping
 from bagsort.flight.schedule import ScheduleBoard
 from bagsort.ids import IdFactory
 from bagsort.inject.injector import Injector
-from bagsort.model.entities import Bag, Flight, Reading, SortRecord
+from bagsort.model.entities import Bag, Flight, Reading, SortRecord, TopicTransition, TopicVersion
 from bagsort.model.errors import unknown_bag
 from bagsort.ns.chutes import ChuteRegistry
 from bagsort.ns.namespace import Namespace
@@ -41,6 +42,17 @@ from bagsort.console.telemetry import Telemetry
 
 DEFAULT_TERMINAL = "T1"
 
+DOMAIN_TOPICS: tuple[str, ...] = (
+    "bag.checked_in",
+    "bag.sorted",
+    "bag.diverted",
+    "bag.recheck_enqueued",
+    "flight.closed",
+    "chute.assigned",
+    "belt.switched",
+    "bag.remapped",
+)
+
 
 @dataclass
 class Plant:
@@ -51,6 +63,7 @@ class Plant:
     namespace: Namespace
     registry: ChuteRegistry
     bus: EventBus
+    topics: TopicRegistry
     telemetry: Telemetry
     metrics: Metrics
     reader: TagReader
@@ -86,7 +99,9 @@ class Plant:
         clock = clock or Clock()
         namespace = Namespace(terminal)
         registry = ChuteRegistry()
-        bus = EventBus()
+        audit = AuditChain(store, clock, handling_line())
+        topics = TopicRegistry(store, clock, audit, catalog=DOMAIN_TOPICS)
+        bus = EventBus(registry=topics)
         telemetry = Telemetry()
         metrics = Metrics()
         bus.subscribe("*", lambda event: telemetry.observe(event.topic))
@@ -106,18 +121,8 @@ class Plant:
         recheck = RecheckQueue(store, book, clock)
         belt = Belt(store, clock, IdFactory("cmd"))
 
-        audit = AuditChain(store, clock, handling_line())
-        audit_subscriber = _AuditSubscriber(audit)
-        for topic in (
-            "bag.checked_in",
-            "bag.sorted",
-            "bag.diverted",
-            "bag.recheck_enqueued",
-            "flight.closed",
-            "chute.assigned",
-            "belt.switched",
-            "bag.remapped",
-        ):
+        audit_subscriber = _AuditSubscriber(audit, topics)
+        for topic in DOMAIN_TOPICS:
             bus.subscribe(topic, audit_subscriber)
 
         report = PlantReport(
@@ -129,6 +134,7 @@ class Plant:
             namespace=namespace,
             registry=registry,
             bus=bus,
+            topics=topics,
             telemetry=telemetry,
             metrics=metrics,
             reader=reader,
@@ -246,11 +252,56 @@ class Plant:
     def verify(self) -> bool:
         return self.audit.verify()
 
+    # -- topic lifecycle ----------------------------------------------------
+
+    def register_topic(self, topic: str) -> TopicVersion:
+        return self.topics.register(topic)
+
+    def register_topic_version(self, family: str) -> TopicVersion:
+        return self.topics.register_version(family)
+
+    def deprecate_topic(self, topic: str, successor: str, not_after: str) -> TopicVersion:
+        return self.topics.deprecate(topic, successor, not_after)
+
+    def retire_topic(self, topic: str) -> TopicVersion:
+        info = self.topics.retire(topic)
+        # Retirement is the end of the transition window: subscriptions still
+        # hanging on the old name are dropped so the registry, the
+        # subscription table and the counters can reconcile again.
+        self.bus.unsubscribe_all(topic)
+        return info
+
+    def topic_evolution(self) -> list[TopicTransition]:
+        return self.topics.evolution()
+
+    def topic_family_counts(self) -> dict[str, int]:
+        """Telemetry rolled up per family, so a rename never splits a count."""
+
+        counters = self.telemetry.snapshot()
+        families = self.topics.families()
+        known = {name for names in families.values() for name in names}
+        counts = {
+            family: sum(counters.get(name, 0) for name in names)
+            for family, names in families.items()
+        }
+        for name, value in counters.items():
+            if name not in known:
+                counts[name] = counts.get(name, 0) + value
+        return dict(sorted(counts.items()))
+
+    def reconcile_topics(self) -> dict[str, object]:
+        kinds = {topic: kind for topic, (kind, _stage) in _AuditSubscriber.STAGE.items()}
+        return self.topics.reconcile(self.bus, self.telemetry, self.audit, kinds)
+
 
 class _AuditSubscriber:
-    """Turns published operations into linked audit entries."""
+    """Turns published operations into linked audit entries.
 
-    _STAGE = {
+    The stage mapping is keyed by topic *family*, so the projection keeps
+    working when it is subscribed to any version of a renamed topic.
+    """
+
+    STAGE = {
         "bag.checked_in": ("checkin", "checkin"),
         "bag.sorted": ("sort", "sorter"),
         "bag.diverted": ("diversion", "sorter"),
@@ -261,11 +312,12 @@ class _AuditSubscriber:
         "bag.remapped": ("remap", "checkin"),
     }
 
-    def __init__(self, audit: AuditChain) -> None:
+    def __init__(self, audit: AuditChain, topics: TopicRegistry) -> None:
         self._audit = audit
+        self._topics = topics
 
     def __call__(self, event) -> None:
-        mapping = self._STAGE.get(event.topic)
+        mapping = self.STAGE.get(self._topics.family_of(event.topic))
         if mapping is None:
             raise ConflictError(f"no audit mapping for topic {event.topic!r}")
         kind, stage = mapping

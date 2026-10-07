@@ -18,6 +18,8 @@ from .entities import (
     LoadRecord,
     Sequence,
     SortRecord,
+    TopicTransition,
+    TopicVersion,
     TransferCommand,
 )
 from bagsort.errors import ValidationError
@@ -35,6 +37,8 @@ class State:
     transfer_commands: list[TransferCommand] = field(default_factory=list)
     load_records: list[LoadRecord] = field(default_factory=list)
     audit: list[AuditEntry] = field(default_factory=list)
+    topics: dict[str, TopicVersion] = field(default_factory=dict)
+    topic_evolution: list[TopicTransition] = field(default_factory=list)
     quota_limits: dict[str, int] = field(default_factory=dict)
     counters: dict[str, int] = field(default_factory=dict)
     sequence: Sequence = field(default_factory=Sequence)
@@ -53,6 +57,8 @@ class State:
             transfer_commands=list(self.transfer_commands),
             load_records=list(self.load_records),
             audit=list(self.audit),
+            topics=dict(self.topics),
+            topic_evolution=list(self.topic_evolution),
             quota_limits=dict(self.quota_limits),
             counters=dict(self.counters),
             sequence=self.sequence,
@@ -74,6 +80,8 @@ class State:
             "transfer_commands": [command.as_dict() for command in self.transfer_commands],
             "load_records": [record.as_dict() for record in self.load_records],
             "audit": [entry.as_dict() for entry in self.audit],
+            "topics": {key: value.as_dict() for key, value in sorted(self.topics.items())},
+            "topic_evolution": [entry.as_dict() for entry in self.topic_evolution],
             "quota_limits": dict(sorted(self.quota_limits.items())),
             "counters": dict(sorted(self.counters.items())),
             "sequence": self.sequence.as_dict(),
@@ -124,6 +132,10 @@ def apply_entry(state: State, kind: str, payload: dict[str, Any]) -> None:
         state.load_records.append(LoadRecord.from_dict(payload["record"]))
     elif kind == "audit.append":
         state.audit.append(AuditEntry.from_dict(payload["entry"]))
+    elif kind in ("topic.register", "topic.deprecate", "topic.retire"):
+        info = TopicVersion.from_dict(payload["info"])
+        state.topics[info.topic] = info
+        state.topic_evolution.append(TopicTransition.from_dict(payload["transition"]))
     elif kind == "quota.set":
         state.quota_limits[str(payload["flight_id"])] = int(payload["limit"])
     elif kind == "quota.adjust":

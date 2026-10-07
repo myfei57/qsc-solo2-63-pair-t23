@@ -40,3 +40,13 @@ def test_topics_and_subscriber_counts_are_reported():
     assert bus.subscribers("bag.sorted") == 2
     assert bus.topics() == ["bag.sorted"]
     assert bus.publish("bag.sorted").as_dict()["topic"] == "bag.sorted"
+
+
+def test_events_carry_a_unique_identity_across_views():
+    bus = EventBus()
+    first = bus.publish("tick")
+    second = bus.publish("tick")
+    assert first.event_id != second.event_id
+    assert first.view("other").event_id == first.event_id
+    assert first.view("other").topic == "other"
+    assert first.as_dict()["event_id"] == first.event_id
