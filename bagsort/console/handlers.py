@@ -104,7 +104,13 @@ def handle_metrics_reset(server, request: Request) -> Response:
 
 def handle_telemetry(server, request: Request) -> Response:
     telemetry = _plant(server).telemetry
-    return json_response({"total": telemetry.total(), "topics": telemetry.snapshot()})
+    return json_response(
+        {
+            "total": telemetry.total(),
+            "topics": telemetry.snapshot(),
+            "variants": telemetry.variant_counts(),
+        }
+    )
 
 
 def handle_report(server, request: Request) -> Response:
@@ -120,6 +126,7 @@ def handle_events(server, request: Request) -> Response:
     return json_response(
         {
             "delivered": bus.delivered(),
+            "facts": bus.facts(),
             "topics": bus.topics(),
             "history": [event.as_dict() for event in bus.history()],
         }
@@ -136,6 +143,111 @@ def handle_events_topic(server, request: Request) -> Response:
             "events": [event.as_dict() for event in bus.history(topic)],
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# topic versioning and governance
+# ---------------------------------------------------------------------------
+
+
+def handle_topics(server, request: Request) -> Response:
+    return json_response([row for row in _plant(server).topics.list()])
+
+
+def handle_topics_current(server, request: Request) -> Response:
+    return json_response(_plant(server).topics.current())
+
+
+def handle_topic_detail(server, request: Request) -> Response:
+    registry = _plant(server).topics
+    topic = request.param("topic")
+    row = registry.topic(topic)
+    row = dict(row)
+    row["lifecycle"] = registry.status_of(topic)
+    return json_response(row)
+
+
+def handle_topic_lineage(server, request: Request) -> Response:
+    family = request.param("family")
+    registry = _plant(server).topics
+    return json_response(
+        {
+            "family": family,
+            "versions": registry.lineage(family),
+            "history": [entry.as_dict() for entry in registry.history(family)],
+        }
+    )
+
+
+def handle_topic_register(server, request: Request) -> Response:
+    plant = _plant(server)
+    row = plant.topics.register_topic(
+        request.required("topic"),
+        replaces=request.str_field("replaces"),
+    )
+    return json_response(row, status=201)
+
+
+def handle_topic_version(server, request: Request) -> Response:
+    plant = _plant(server)
+    sunset = request.str_field("sunset_at")
+    row = plant.topics.introduce_version(
+        request.required("topic"),
+        request.required("previous"),
+        compatibility=request.str_field("compatibility", "dual") or "dual",
+        sunset_at=sunset,
+    )
+    return json_response(row, status=201)
+
+
+def handle_topic_deprecate(server, request: Request) -> Response:
+    plant = _plant(server)
+    row = plant.topics.deprecate(
+        request.param("topic"),
+        sunset_at=request.required("sunset_at"),
+        compatibility=request.str_field("compatibility", "dual") or "dual",
+    )
+    return json_response(row)
+
+
+def handle_topic_retire(server, request: Request) -> Response:
+    return json_response(_plant(server).topics.retire(request.param("topic")))
+
+
+def handle_topic_sweep(server, request: Request) -> Response:
+    plant = _plant(server)
+    retired = plant.sweep_topics()
+    return json_response({"retired": retired, "count": len(retired)})
+
+
+def handle_topic_history(server, request: Request) -> Response:
+    registry = _plant(server).topics
+    return json_response([entry.as_dict() for entry in registry.history()])
+
+
+def handle_topic_verify(server, request: Request) -> Response:
+    return json_response({"intact": _plant(server).topics.verify_history()})
+
+
+def handle_topic_reconcile(server, request: Request) -> Response:
+    plant = _plant(server)
+    result = plant.reconcile_topics()
+    return json_response(result.as_dict())
+
+
+def handle_topic_publish(server, request: Request) -> Response:
+    """Operator publish of a named business fact (idempotent on ``fact_id``)."""
+
+    plant = _plant(server)
+    topic = request.required("topic")
+    fact_id = request.str_field("fact_id")
+    payload = {
+        key: value
+        for key, value in request.payload.items()
+        if key not in {"topic", "fact_id"}
+    }
+    event = plant.bus.publish_fact(topic, fact_id, **payload)
+    return json_response(event.as_dict(), status=201)
 
 
 def handle_telemetry_reset(server, request: Request) -> Response:

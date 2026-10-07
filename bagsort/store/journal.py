@@ -62,6 +62,20 @@ class Journal:
             return 0
         return self._committed[-1].sequence
 
+    def bootstrap(self, kind: str, payload: dict[str, Any], at: str = "") -> None:
+        """Install a system seed entry without advancing the commit watermark.
+
+        Bootstrap entries sit at sequence 0 and exist so a fresh build and a
+        replay of a persisted store end up with identical seed state, while a
+        brand new plant still reports watermark 0 before any operator action.
+        """
+
+        position = sum(1 for entry in self._committed if entry.sequence == 0)
+        self._committed.insert(
+            position,
+            JournalEntry(sequence=0, kind=kind, payload=payload, at=at),
+        )
+
     def committed(self) -> list[JournalEntry]:
         return list(self._committed)
 

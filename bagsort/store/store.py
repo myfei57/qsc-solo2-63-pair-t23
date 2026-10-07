@@ -73,6 +73,11 @@ class Store:
     def kinds(self) -> dict[str, int]:
         return self._journal.kinds()
 
+    def invalidate(self) -> None:
+        """Drop the folded cache so the next read replays the journal."""
+
+        self._cache = None
+
     def dirty(self) -> bool:
         return self._dirty
 
